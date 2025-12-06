@@ -5,6 +5,7 @@ import os
 import math
 import ast
 import joblib
+import re
 from sklearn.metrics.pairwise import cosine_similarity
 
 # ========================================
@@ -20,7 +21,7 @@ st.set_page_config(
 # ========================================
 # KONSTANTA
 # ========================================
-DATASET_PATH = "dataset/dataset450_clean_mccbf.csv"
+DATASET_PATH = "dataset/dataset450_final.csv"
 RFDATA_DIR = "rfdata"
 ALPHA_DEFAULT = 0.7
 
@@ -44,6 +45,46 @@ MODES = {
         'w_keyword': 0.35
     }
 }
+
+# ========================================
+# KARBO CLEANING FUNCTIONS
+# ========================================
+def clean_karbo_list(x):
+    if pd.isna(x) or not x:
+        return []
+    try:
+        lst = ast.literal_eval(str(x))
+        if not isinstance(lst, list):
+            lst = [lst]
+    except:
+        lst = str(x).split()
+    return [k.lower().strip() for k in lst if k]
+
+
+def format_karbo_display(karbo_list, user_prefs):
+    """Format display karbohidrat dengan highlight"""
+    if not karbo_list or len(karbo_list) == 0:
+        return "_Tidak ada data_"
+    
+    user_prefs_lower = [k.lower() for k in user_prefs] if user_prefs else []
+    
+    karbo_display = []
+    for item in karbo_list:
+        item_title = item.title()
+        
+        # Check if any user pref is contained in this item or vice versa
+        is_match = False
+        for pref in user_prefs_lower:
+            if pref in item.lower() or item.lower() in pref:
+                is_match = True
+                break
+        
+        if is_match:
+            karbo_display.append(f"`{item_title}` ✅")
+        else:
+            karbo_display.append(f"`{item_title}`")
+    
+    return ' '.join(karbo_display)
 
 # ========================================
 # PREPROCESSING FUNCTIONS
@@ -90,16 +131,9 @@ def load_hybrid_engine():
         # Load dataset
         df = pd.read_csv(DATASET_PATH)
         
-        # Parse Karbo_List
+        # Clean Karbo_List
         if "Karbo_List" in df.columns:
-            def to_list(x):
-                if isinstance(x, list):
-                    return x
-                try:
-                    return ast.literal_eval(x)
-                except:
-                    return []
-            df["Karbo_List"] = df["Karbo_List"].apply(to_list)
+            df["Karbo_List"] = df["Karbo_List"].apply(clean_karbo_list)
         else:
             df["Karbo_List"] = [[] for _ in range(len(df))]
         
@@ -321,6 +355,11 @@ with st.expander("ℹ️ Tentang Sistem Hybrid"):
     - Formula: `Hybrid Score = α × MCCBF + (1-α) × RF`
     
     **Dataset:** 450 menu dari Icel's Room Kitchen, Katering Fit, dan Diet Catering Indonesia
+    
+    ### ✨ Fitur Baru:
+    - 🔧 **Auto-cleaning Karbohidrat**: Menggabungkan "nasi + merah" → "nasi merah"
+    - 🎯 **Smart Normalisasi**: "rice" → "nasi", "red" → "merah"
+    - ✅ **Highlight Matching**: Karbo yang cocok diberi tanda ✅
     """)
 
 # Check engine status
@@ -365,21 +404,23 @@ kategori_pref = st.sidebar.multiselect(
     help="RF akan prioritaskan kategori ini"
 )
 
-# 3️⃣ Karbohidrat
-if "Karbo_List" in df.columns:
-    karbo_raw = []
-    for lst in df["Karbo_List"]:
-        if isinstance(lst, list):
-            karbo_raw.extend([k.lower().strip() for k in lst])
-    karbo_options = sorted(list(set(karbo_raw)))
-else:
-    karbo_options = []
+# 3️⃣ Karbohidrat (CLEANED)
+# Collect unique karbo dari cleaned Karbo_List
+all_karbo = set()
+for lst in df["Karbo_List"]:
+    if isinstance(lst, list):
+        all_karbo.update(lst)
+
+karbo_options = sorted(list(all_karbo))
+
+# Show count for info
+st.sidebar.caption(f"🍚 **{len(karbo_options)} jenis karbohidrat tersedia**")
 
 pilihan_karbo = st.sidebar.multiselect(
     "Pilih Sumber Karbohidrat",
     options=karbo_options,
     default=[karbo_options[0]] if karbo_options else [],
-    help="MCCBF akan prioritaskan karbohidrat ini"
+    help="MCCBF akan prioritaskan karbohidrat ini. Data sudah dinormalisasi (nasi merah, nasi putih, dll)"
 )
 
 # 4️⃣ Deskripsi Query
@@ -482,6 +523,9 @@ if generate_btn:
             st.caption(f"📝 **Query:** {user_query}")
             st.caption(f"⚖️ **Blending:** α={alpha} ({alpha*100:.0f}% MCCBF + {(1-alpha)*100:.0f}% RF)")
             
+            if pilihan_karbo:
+                st.caption(f"🍚 **Karbohidrat dipilih:** {', '.join([k.title() for k in pilihan_karbo])}")
+            
             st.markdown("---")
             st.subheader(f"🏆 Top-{top_n} Rekomendasi Hybrid")
             
@@ -504,16 +548,10 @@ if generate_btn:
                             if row['Deskripsi_Menu'] and str(row['Deskripsi_Menu']) != 'nan':
                                 st.write(f"📝 {row['Deskripsi_Menu'].capitalize()}")
                             
-                            # Karbo display
+                            # Karbo display (CLEANED & FORMATTED)
                             karbo_list = row['Karbo_List']
-                            if karbo_list and len(karbo_list) > 0:
-                                karbo_display = []
-                                for item in karbo_list:
-                                    if item.lower() in [k.lower() for k in pilihan_karbo]:
-                                        karbo_display.append(f"`{item.title()}` ✅")
-                                    else:
-                                        karbo_display.append(f"`{item.title()}`")
-                                st.markdown(f"🍚 **Karbohidrat:** {' '.join(karbo_display)}")
+                            karbo_display = format_karbo_display(karbo_list, pilihan_karbo)
+                            st.markdown(f"🍚 **Karbohidrat:** {karbo_display}")
                             
                             # Scores
                             col_a, col_b, col_c = st.columns(3)
@@ -567,7 +605,11 @@ else:
     with col2:
         show_all = st.checkbox("Tampilkan Semua")
     
-    display_df = df[['Nama_Menu', 'Kategori', 'Kalori']].copy()
+    # Show sample with cleaned karbo
+    display_df = df[['Nama_Menu', 'Kategori', 'Kalori', 'Karbo_List']].head(20).copy()
+    display_df['Karbo_List'] = display_df['Karbo_List'].apply(
+        lambda x: ', '.join([k.title() for k in x]) if x else 'N/A'
+    )
     
     if show_all:
         st.dataframe(display_df, use_container_width=True, height=400)
@@ -588,7 +630,11 @@ else:
         
         with col3:
             st.metric("Kalori Avg", f"{df['Kalori'].mean():.0f}")
-            st.metric("Sumber Data", "3 Catering")
+            st.metric("Jenis Karbo", len(all_karbo))
+        
+        st.markdown("---")
+        st.caption("**Daftar Karbohidrat yang Tersedia (Sudah Dinormalisasi):**")
+        st.write(', '.join(sorted([k.title() for k in all_karbo])))
 
 # ========================================
 # FOOTER
@@ -596,3 +642,5 @@ else:
 st.markdown("---")
 st.caption("🔬 Hybrid Recommender System: MCCBF (70%) + Random Forest (30%)")
 st.caption("📊 Dataset: 450 menu dari 3 top catering diet Indonesia")
+st.caption("✨ Auto-cleaning: Normalisasi karbo (nasi merah, nasi putih, dll)")
+st.caption("🏫 Icel's Room Kitchen | UIN Sunan Gunung Djati Bandung")

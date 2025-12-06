@@ -12,7 +12,7 @@ import seaborn as sns
 # 1. CONFIG
 # ==========================
 
-DATASET_PATH = "dataset/dataset450_clean_mccbf.csv"
+DATASET_PATH = "dataset/dataset450_final.csv"
 RFDATA_DIR = "rfdata"
 OUTPUT_DIR = "datahybrid"
 
@@ -98,17 +98,21 @@ def load_assets():
     print(f"✅ Loaded dataset: {len(df)} rows")
     
     # Parse Karbo_List
+    # SAFE PARSING UNTUK LIST BARU HASIL CLEANER
     if "Karbo_List" in df.columns:
-        def to_list(x):
+        def parse_list(x):
             if isinstance(x, list):
                 return x
+            if pd.isna(x):
+                return []
             try:
                 return ast.literal_eval(x)
             except:
                 return []
-        df["Karbo_List"] = df["Karbo_List"].apply(to_list)
+        df["Karbo_List"] = df["Karbo_List"].apply(parse_list)
     else:
         df["Karbo_List"] = [[] for _ in range(len(df))]
+
     
     # RF Model & Vectorizer
     rf_model = joblib.load(os.path.join(RFDATA_DIR, "rf_model_production.pkl"))
