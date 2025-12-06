@@ -1,0 +1,16 @@
+No,Menu,True_Label,Predicted_Label,Confidence,Correct
+1,nasi ayam bakar madu,ayam,ayam,0.9354443318659513,True
+2,beef rendang pedas,sapi,sapi,0.6217630728230875,True
+3,ikan bakar rica rica,ikan,ikan,0.8661048684342556,True
+4,salad caesar vegetarian,lainnya,lainnya,0.2977766474741115,True
+5,chicken beef wrap,ayam,ayam,0.5373238527159218,True
+6,sup iga sapi special,sapi,sapi,0.8781003592818081,True
+7,dori goreng tepung,ikan,ikan,0.6362637526500792,True
+8,nasi goreng seafood,ikan,ikan,0.5261048684342555,True
+9,ayam suwir pedas,ayam,ayam,0.9488175587604715,True
+10,rawon daging sapi,sapi,sapi,0.8714451644766135,True
+11,crispy fish fillet,ikan,ikan,0.5361048684342555,True
+12,kentang goreng crispy,lainnya,sapi,0.29125254291781916,False
+13,bakso sapi kuah,sapi,sapi,0.8732951644766132,True
+14,gurame goreng crispy,ikan,ikan,0.5261048684342555,True
+15,nasi putih biasa,lainnya,sapi,0.3781675865694668,False
