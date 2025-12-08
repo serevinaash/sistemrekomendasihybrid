@@ -83,8 +83,7 @@ def preprocess_menu(menu_name):
 # MCCBF SCORING COMPONENTS
 # ============================================================
 
-def gaussian_calorie_score(menu_cal, target_cal, sigma=30):
-    """Gaussian scoring untuk kalori"""
+def gaussian_calorie_score(menu_cal, target_cal, sigma=10):
     if target_cal is None or target_cal <= 0:
         return 1.0
     try:
@@ -93,6 +92,8 @@ def gaussian_calorie_score(menu_cal, target_cal, sigma=30):
         return max(0.0, min(1.0, score))
     except:
         return 0.5
+
+
 
 
 def karbo_score(menu_karbo_list, preferred_karbo):
@@ -242,10 +243,11 @@ class HybridEvaluator:
             test_queries.append({
                 'query': row['Nama_Menu'].lower(),
                 'true_label': row['Kategori'],
-                'target_calorie': row['Kalori'],
-                'preferred_karbo': row['Karbo_List']
+                'target_calorie': None,     # calorie does NOT matter now
+                'preferred_karbo': None     # evaluation must NOT include user preferences
             })
-        
+
+                    
         # Predict dengan hybrid
         y_hybrid_pred = []
         hybrid_scores_list = []

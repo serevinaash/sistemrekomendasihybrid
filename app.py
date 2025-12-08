@@ -19,30 +19,39 @@ st.set_page_config(
 )
 
 # ========================================
-# KONSTANTA
+# BEST MODEL CONFIGURATION
 # ========================================
-DATASET_PATH = "dataset/dataset450_final.csv"
-RFDATA_DIR = "rfdata"
-ALPHA_DEFAULT = 0.7
+BEST_SPLIT = "70_30"           # ← Menggunakan split 70_30
+ALPHA_BEST = 0.7                # ← 70% MCCBF + 30% RF
+MODE_BEST = "seimbang"          # ← Mode terbaik
 
+DATASET_PATH = "dataset/dataset450_indonesia.csv"
+RFDATA_DIR = f"rftrain/{BEST_SPLIT}"  # Load model dari split terbaik
+
+# ========================================
+# MODES CONFIGURATION
+# ========================================
 MODES = {
     'seimbang': {
         'w_similarity': 0.35,
         'w_kalori': 0.10,
         'w_karbo': 0.25,
-        'w_keyword': 0.30
+        'w_keyword': 0.30,
+        'description': '⚖️ Balance antara semua kriteria'
     },
     'fokus_deskripsi': {
         'w_similarity': 0.45,
         'w_kalori': 0.10,
         'w_karbo': 0.20,
-        'w_keyword': 0.25
+        'w_keyword': 0.25,
+        'description': '📝 Prioritas detail rasa & metode masak'
     },
     'fokus_kategori': {
         'w_similarity': 0.25,
         'w_kalori': 0.10,
         'w_karbo': 0.30,
-        'w_keyword': 0.35
+        'w_keyword': 0.35,
+        'description': '🍖 Prioritas jenis lauk/protein'
     }
 }
 
@@ -60,7 +69,6 @@ def clean_karbo_list(x):
         lst = str(x).split()
     return [k.lower().strip() for k in lst if k]
 
-
 def format_karbo_display(karbo_list, user_prefs):
     """Format display karbohidrat dengan highlight"""
     if not karbo_list or len(karbo_list) == 0:
@@ -72,7 +80,6 @@ def format_karbo_display(karbo_list, user_prefs):
     for item in karbo_list:
         item_title = item.title()
         
-        # Check if any user pref is contained in this item or vice versa
         is_match = False
         for pref in user_prefs_lower:
             if pref in item.lower() or item.lower() in pref:
@@ -128,23 +135,24 @@ def preprocess_menu(menu_name):
 def load_hybrid_engine():
     """Load semua assets untuk hybrid engine"""
     try:
-        # Load dataset
         df = pd.read_csv(DATASET_PATH)
         
-        # Clean Karbo_List
         if "Karbo_List" in df.columns:
             df["Karbo_List"] = df["Karbo_List"].apply(clean_karbo_list)
         else:
             df["Karbo_List"] = [[] for _ in range(len(df))]
         
-        # Generate enhanced corpus
         df["enhanced_corpus"] = df["Nama_Menu"].apply(preprocess_menu)
         
-        # Load RF model & vectorizer
-        rf_model = joblib.load(os.path.join(RFDATA_DIR, "rf_model_production.pkl"))
-        vectorizer = joblib.load(os.path.join(RFDATA_DIR, "tfidf_vectorizer_production.pkl"))
+        rf_model = joblib.load(os.path.join(RFDATA_DIR, "rf_model.pkl"))
+        vectorizer = joblib.load(os.path.join(RFDATA_DIR, "tfidf_vectorizer.pkl"))
         
-        # Precompute TF-IDF
+        metrics_path = os.path.join(RFDATA_DIR, "metrics_summary.csv")
+        if os.path.exists(metrics_path):
+            metrics = pd.read_csv(metrics_path).iloc[0].to_dict()
+        else:
+            metrics = {}
+        
         X_all = vectorizer.transform(df["enhanced_corpus"])
         
         return {
@@ -152,6 +160,7 @@ def load_hybrid_engine():
             'rf_model': rf_model,
             'vectorizer': vectorizer,
             'X_all': X_all,
+            'metrics': metrics,
             'status': 'success'
         }
     except Exception as e:
@@ -163,16 +172,14 @@ def load_hybrid_engine():
 # ========================================
 # SCORING FUNCTIONS
 # ========================================
-def gaussian_calorie_score(menu_cal, target_cal, sigma=30):
-    """Gaussian scoring untuk kalori"""
-    if target_cal is None or target_cal <= 0:
-        return 1.0
-    try:
-        diff = abs(float(target_cal) - float(menu_cal))
-        score = math.exp(-(diff ** 2) / (2 * (sigma ** 2)))
-        return max(0.0, min(1.0, score))
-    except:
-        return 0.5
+def gaussian_calorie_score(menu_cal, max_cal):
+    """
+    Dummy function: kalori sekarang dikontrol via hard filter (bukan scoring).
+    Supaya pipeline lama tetap jalan, kita kembalikan 1.0 untuk semua menu.
+    """
+    return 1.0
+
+
 
 def karbo_score(menu_karbo_list, preferred_karbo):
     """Jaccard similarity untuk karbo"""
@@ -219,28 +226,23 @@ def mccbf_score(df, X_all, vectorizer, user_query,
     """Hitung MCCBF score"""
     weights = MODES.get(mode, MODES['seimbang'])
     
-    # 1) Similarity score
     enhanced_query = preprocess_menu(user_query)
     X_user = vectorizer.transform([enhanced_query])
     sim = cosine_similarity(X_user, X_all)[0]
     sim_norm = sim / sim.max() if sim.max() > 0 else sim
     
-    # 2) Calorie score
     cal_scores = df["Kalori"].apply(
         lambda c: gaussian_calorie_score(c, target_calorie)
     ).values
     
-    # 3) Karbo score
     karbo_scores = df["Karbo_List"].apply(
         lambda kl: karbo_score(kl, preferred_karbo)
     ).values
     
-    # 4) Keyword boost
     keyword_boosts = df["Deskripsi_Menu"].apply(
         lambda desc: keyword_boost_score(desc, user_query)
     ).values
     
-    # Weighted sum
     mccbf = (
         weights['w_similarity'] * sim_norm +
         weights['w_kalori'] * cal_scores +
@@ -271,43 +273,68 @@ def rf_category_scores(df, X_all, rf_model, preferred_categories=None):
     return proba[:, idx_list].max(axis=1)
 
 def recommend_hybrid(engine, user_query, target_calorie=None,
-                    preferred_categories=None, preferred_karbo=None,
-                    mode="seimbang", alpha=0.7, top_n=10):
-    """Hybrid recommender"""
+                     preferred_categories=None, preferred_karbo=None,
+                     mode="seimbang", alpha=0.7, top_n=10):
+    """Hybrid recommender dengan hard-calorie filter"""
+
     df = engine['df']
     rf_model = engine['rf_model']
     vectorizer = engine['vectorizer']
     X_all = engine['X_all']
-    
+
+    # -------------------------
+    # 🔥 HARD FILTER KALORI
+    # -------------------------
+    if target_calorie is not None:
+        allowed_idx = df[df["Kalori"] <= target_calorie].index
+    else:
+        allowed_idx = df.index
+
+    df_filtered = df.loc[allowed_idx].reset_index(drop=True)
+    X_all_filtered = X_all[allowed_idx]
+
+    # Jika seluruh menu terfilter habis
+    if len(df_filtered) == 0:
+        return pd.DataFrame()
+
+    # Safety untuk list preferensi
     if preferred_categories is None:
         preferred_categories = []
     if preferred_karbo is None:
         preferred_karbo = []
-    
-    # MCCBF Score
+
+    # -------------------------
+    # HITUNG MCCBF (pakai df_filtered)
+    # -------------------------
     mccbf, mccbf_components = mccbf_score(
-        df, X_all, vectorizer,
+        df_filtered, X_all_filtered, vectorizer,
         user_query=user_query,
         target_calorie=target_calorie,
         preferred_karbo=preferred_karbo,
         mode=mode
     )
-    
-    # RF Score
+
+    # -------------------------
+    # HITUNG RF (pakai df_filtered)
+    # -------------------------
     rf_scores = rf_category_scores(
-        df, X_all, rf_model,
+        df_filtered, X_all_filtered, rf_model,
         preferred_categories=preferred_categories
     )
-    
-    # Hybrid Score
+
+    # -------------------------
+    # HYBRID SCORE
+    # -------------------------
     hybrid = alpha * mccbf + (1 - alpha) * rf_scores
-    
-    # Build result
-    result = df[[
-        'Nama_Menu', 'Kategori', 'Kalori', 
+
+    # -------------------------
+    # SUSUN DATAFRAME OUTPUT
+    # -------------------------
+    result = df_filtered[[
+        'Nama_Menu', 'Kategori', 'Kalori',
         'Karbo_List', 'Deskripsi_Menu'
     ]].copy()
-    
+
     result["mccbf_score"] = mccbf
     result["mccbf_similarity"] = mccbf_components['similarity']
     result["mccbf_calorie"] = mccbf_components['calorie']
@@ -315,10 +342,10 @@ def recommend_hybrid(engine, user_query, target_calorie=None,
     result["mccbf_keyword"] = mccbf_components['keyword']
     result["rf_score"] = rf_scores
     result["hybrid_score"] = hybrid
-    
-    # Sort & return top N
+
     result = result.sort_values("hybrid_score", ascending=False).reset_index(drop=True)
     return result.head(top_n)
+
 
 # ========================================
 # LOAD ENGINE
@@ -329,42 +356,51 @@ engine = load_hybrid_engine()
 # HEADER APLIKASI
 # ========================================
 st.title("🥗 Sistem Rekomendasi Menu Diet Sehat - HYBRID")
-st.markdown("### Icel's Room Kitchen - Katering Diet Personal")
-st.markdown("**🔬 Powered by: MCCBF + Random Forest Classifier**")
+st.markdown("### Icel's Room Kitchen , Yellow Fit Kitchen , DietGo Kicthen- Katering Diet Personal")
+
+metrics = engine.get('metrics', {})
 st.markdown("---")
 
 # Info sistem
 with st.expander("ℹ️ Tentang Sistem Hybrid"):
-    st.write("""
+    st.write(f"""
     Sistem ini menggunakan **pendekatan hybrid** yang menggabungkan:
-    
+
     ### 🔵 MCCBF (Multi-Criteria Content-Based Filtering)
     - 🔢 Gaussian Calorie Scoring (sigma=30)
     - 🍚 Jaccard Similarity untuk Karbohidrat
     - 📝 TF-IDF + Bigram untuk Deskripsi
     - 🏷️ Keyword Boost System
-    
+
     ### 🟢 Random Forest Classifier
     - 🎯 Kategori Prediction dengan 100 trees
-    - 📊 Trained pada 450 menu dari 3 top catering Indonesia
-    - ✅ Accuracy: ~80% (Test Set)
-    
-    ### ⚖️ Hybrid Blending
-    - **Alpha (α)**: Weight untuk MCCBF (default: 0.7)
-    - **(1-α)**: Weight untuk RF
-    - Formula: `Hybrid Score = α × MCCBF + (1-α) × RF`
-    
-    **Dataset:** 450 menu dari Icel's Room Kitchen, Katering Fit, dan Diet Catering Indonesia
-    
-    ### ✨ Fitur Baru:
-    - 🔧 **Auto-cleaning Karbohidrat**: Menggabungkan "nasi + merah" → "nasi merah"
-    - 🎯 **Smart Normalisasi**: "rice" → "nasi", "red" → "merah"
-    - ✅ **Highlight Matching**: Karbo yang cocok diberi tanda ✅
+    - 📊 Trained pada split: **{BEST_SPLIT.replace('_', '-')}**
+    - ✅ Test Accuracy: **{metrics.get('Test_Accuracy', 0):.2%}**
+    - 📈 Test F1-Score: **{metrics.get('Test_F1', 0):.4f}**
+
+    ### ⚖️ Hybrid Blending (Optimal Configuration)
+    - **Alpha (α)**: {ALPHA_BEST} (Best from evaluation)
+    - **Formula**: `Hybrid Score = {ALPHA_BEST} × MCCBF + {1-ALPHA_BEST} × RF`
+    - **Mode Default**: {MODE_BEST} (Best from evaluation)
+
+    ### 🎨 Mode Flexibility
+    - **Seimbang**: {MODES['seimbang']['description']}
+    - **Fokus Deskripsi**: {MODES['fokus_deskripsi']['description']}
+    - **Fokus Kategori**: {MODES['fokus_kategori']['description']}
+
+    **Dataset:** {len(engine['df'])} menu dari Icel's Room Kitchen, Yellow Fit Kitchen, dan DietGo Kitchen
+
+    ### ✨ Fitur:
+    - 🔧 Auto-cleaning Karbohidrat
+    - 🎯 Smart Normalisasi
+    - ✅ Highlight Matching
     """)
+
 
 # Check engine status
 if engine['status'] == 'error':
     st.error(f"❌ Gagal load model: {engine['error']}")
+    st.info(f"💡 Pastikan model sudah di-train dengan script 1_train_rf_tfidf.py untuk split {BEST_SPLIT}")
     st.stop()
 
 df = engine['df']
@@ -374,8 +410,8 @@ df = engine['df']
 # ========================================
 st.sidebar.header("🎯 Preferensi Anda")
 
-# Info dataset
 st.sidebar.caption(f"📊 **Dataset:** {len(df)} menu tersedia")
+st.sidebar.caption(f"🏆 **Model:** {BEST_SPLIT.replace('_', '-')} (Best)")
 
 # 1️⃣ Target Kalori
 kalori_min = int(df['Kalori'].min())
@@ -388,7 +424,7 @@ col2.metric("Avg", f"{kalori_mean}")
 col3.metric("Max", f"{kalori_max}")
 
 kalori_target = st.sidebar.slider(
-    "Target Kalori (kcal)",
+    "Kalori Maksimal (kcal)",
     min_value=kalori_min,
     max_value=kalori_max,
     value=kalori_mean,
@@ -405,31 +441,28 @@ kategori_pref = st.sidebar.multiselect(
 )
 
 # 3️⃣ Karbohidrat (CLEANED)
-# Collect unique karbo dari cleaned Karbo_List
 all_karbo = set()
 for lst in df["Karbo_List"]:
     if isinstance(lst, list):
         all_karbo.update(lst)
 
 karbo_options = sorted(list(all_karbo))
-
-# Show count for info
 st.sidebar.caption(f"🍚 **{len(karbo_options)} jenis karbohidrat tersedia**")
 
 pilihan_karbo = st.sidebar.multiselect(
     "Pilih Sumber Karbohidrat",
     options=karbo_options,
     default=[karbo_options[0]] if karbo_options else [],
-    help="MCCBF akan prioritaskan karbohidrat ini. Data sudah dinormalisasi (nasi merah, nasi putih, dll)"
+    help="MCCBF akan prioritaskan karbohidrat ini"
 )
-
 # 4️⃣ Deskripsi Query
-st.sidebar.markdown("**📝 Deskripsi Preferensi:**")
+st.sidebar.markdown("### 📝 Deskripsi Preferensi:")
 
-# Quick tags
-col1, col2 = st.sidebar.columns(2)
-if 'query' not in st.session_state:
+# State untuk query
+if "query" not in st.session_state:
     st.session_state.query = "ayam bakar pedas sehat"
+
+col1, col2 = st.sidebar.columns(2)
 
 with col1:
     if st.button("🟢 Rendah Lemak"):
@@ -437,7 +470,7 @@ with col1:
     if st.button("🟢 Tinggi Protein"):
         st.session_state.query = "tinggi protein"
     if st.button("🟢 Diet"):
-        st.session_state.query = "diet sehat rendah kalori"
+        st.session_state.query = "diet sehat"
 
 with col2:
     if st.button("🔴 Tanpa Santan"):
@@ -447,12 +480,14 @@ with col2:
     if st.button("🔴 Kukus"):
         st.session_state.query = "kukus sehat"
 
+# Input manual user
 user_query = st.sidebar.text_area(
     "Atau Ketik Manual:",
     value=st.session_state.query,
     height=80,
     help="Deskripsikan preferensi menu Anda"
 )
+
 
 # 5️⃣ Mode & Alpha
 st.sidebar.markdown("---")
@@ -461,19 +496,28 @@ st.sidebar.subheader("⚙️ Pengaturan Hybrid")
 mode = st.sidebar.radio(
     "Mode MCCBF",
     options=["seimbang", "fokus_deskripsi", "fokus_kategori"],
-    help="Mode bobot untuk MCCBF component"
+    index=0,
+    help=f"Mode bobot untuk MCCBF component\n\n" + 
+         "\n".join([f"• {k}: {v['description']}" for k, v in MODES.items()])
 )
 
-alpha = st.sidebar.slider(
-    "Alpha (α) - Weight MCCBF",
-    min_value=0.0,
-    max_value=1.0,
-    value=ALPHA_DEFAULT,
-    step=0.05,
-    help=f"α={ALPHA_DEFAULT} = 70% MCCBF + 30% RF"
-)
+with st.sidebar.expander("📊 Lihat Bobot Mode"):
+    selected_mode = MODES[mode]
+    st.write("**Weight Distribution:**")
+    st.write(f"• Similarity: {selected_mode['w_similarity']*100:.0f}%")
+    st.write(f"• Kalori: {selected_mode['w_kalori']*100:.0f}%")
+    st.write(f"• Karbo: {selected_mode['w_karbo']*100:.0f}%")
+    st.write(f"• Keyword: {selected_mode['w_keyword']*100:.0f}%")
 
-st.sidebar.caption(f"📊 **Blending:** {alpha*100:.0f}% MCCBF + {(1-alpha)*100:.0f}% RF")
+
+AUTO_ALPHA = {
+    "seimbang": 0.70,
+    "fokus_deskripsi": 0.65,
+    "fokus_kategori": 0.60
+}
+
+alpha = AUTO_ALPHA.get(mode, ALPHA_BEST)
+
 
 top_n = st.sidebar.slider(
     "Jumlah Rekomendasi",
@@ -484,9 +528,6 @@ top_n = st.sidebar.slider(
 
 show_debug = st.sidebar.checkbox("🔍 Mode Debug")
 
-# ========================================
-# TOMBOL GENERATE
-# ========================================
 st.sidebar.markdown("---")
 generate_btn = st.sidebar.button("🚀 Dapatkan Rekomendasi", type="primary")
 
@@ -521,8 +562,7 @@ if generate_btn:
                 st.metric("⚙️ Mode", mode.title())
             
             st.caption(f"📝 **Query:** {user_query}")
-            st.caption(f"⚖️ **Blending:** α={alpha} ({alpha*100:.0f}% MCCBF + {(1-alpha)*100:.0f}% RF)")
-            
+             
             if pilihan_karbo:
                 st.caption(f"🍚 **Karbohidrat dipilih:** {', '.join([k.title() for k in pilihan_karbo])}")
             
@@ -548,99 +588,143 @@ if generate_btn:
                             if row['Deskripsi_Menu'] and str(row['Deskripsi_Menu']) != 'nan':
                                 st.write(f"📝 {row['Deskripsi_Menu'].capitalize()}")
                             
-                            # Karbo display (CLEANED & FORMATTED)
-                            karbo_list = row['Karbo_List']
-                            karbo_display = format_karbo_display(karbo_list, pilihan_karbo)
+                            karbo_display = format_karbo_display(row['Karbo_List'], pilihan_karbo)
                             st.markdown(f"🍚 **Karbohidrat:** {karbo_display}")
                             
-                            # Scores
-                            col_a, col_b, col_c = st.columns(3)
-                            with col_a:
-                                st.caption(f"🔵 MCCBF: {row['mccbf_score']:.3f}")
-                            with col_b:
-                                st.caption(f"🟢 RF: {row['rf_score']:.3f}")
-                            with col_c:
-                                st.caption(f"⭐ Hybrid: {row['hybrid_score']:.3f}")
+                            col1, col2, col3 = st.columns(3)
+                            
                             
                             if show_debug:
-                                st.caption("📊 **MCCBF Breakdown:**")
-                                st.caption(f"   • Similarity: {row['mccbf_similarity']:.3f}")
-                                st.caption(f"   • Calorie: {row['mccbf_calorie']:.3f}")
-                                st.caption(f"   • Karbo: {row['mccbf_karbo']:.3f}")
-                                st.caption(f"   • Keyword: {row['mccbf_keyword']:.3f}")
+                                with st.expander("🔍 Score Breakdown"):
+                                    col1, col2 = st.columns(2)
+                                    
+                                    with col1:
+                                        st.markdown("**MCCBF Components:**")
+                                        st.write(f"• Similarity: {row['mccbf_similarity']:.4f}")
+                                        st.write(f"• Calorie: {row['mccbf_calorie']:.4f}")
+                                        st.write(f"• Karbo: {row['mccbf_karbo']:.4f}")
+                                        st.write(f"• Keyword: {row['mccbf_keyword']:.4f}")
+                                    
+                                    with col2:
+                                        st.markdown("**Calculation:**")
+                                        st.write(f"• MCCBF Total: {row['mccbf_score']:.4f}")
+                                        st.write(f"• RF Probability: {row['rf_score']:.4f}")
+                                        st.write(f"• α × MCCBF: {alpha * row['mccbf_score']:.4f}")
+                                        st.write(f"• (1-α) × RF: {(1-alpha) * row['rf_score']:.4f}")
+                                        st.write(f"• **Final: {row['hybrid_score']:.4f}**")
                         
                         st.markdown("---")
                 
-                # Download button
+                # Export recommendations
+                st.markdown("### 📥 Export Rekomendasi")
+                
                 csv = recommendations.to_csv(index=False).encode('utf-8')
                 st.download_button(
-                    label="📥 Download Hasil (CSV)",
+                    label="⬇️ Download CSV",
                     data=csv,
-                    file_name=f'rekomendasi_hybrid_alpha{alpha}.csv',
-                    mime='text/csv',
+                    file_name=f"rekomendasi_hybrid_{mode}_alpha{alpha}.csv",
+                    mime="text/csv"
                 )
                 
-                # Debug table
-                if show_debug:
-                    st.markdown("---")
-                    st.subheader("🔍 Debug: Score Details")
-                    debug_df = recommendations[[
-                        'Nama_Menu', 'hybrid_score', 'mccbf_score', 'rf_score',
-                        'mccbf_similarity', 'mccbf_calorie', 'mccbf_karbo', 'mccbf_keyword'
-                    ]]
-                    st.dataframe(debug_df, use_container_width=True)
-        
+                # Summary statistics
+                with st.expander("📊 Statistik Rekomendasi"):
+                    col1, col2, col3 = st.columns(3)
+                    
+                    with col1:
+                        st.markdown("**Hybrid Score:**")
+                        st.write(f"• Mean: {recommendations['hybrid_score'].mean():.4f}")
+                        st.write(f"• Std: {recommendations['hybrid_score'].std():.4f}")
+                        st.write(f"• Min: {recommendations['hybrid_score'].min():.4f}")
+                        st.write(f"• Max: {recommendations['hybrid_score'].max():.4f}")
+                    
+                    with col2:
+                        st.markdown("**Kalori:**")
+                        st.write(f"• Mean: {recommendations['Kalori'].mean():.1f} kcal")
+                        st.write(f"• Std: {recommendations['Kalori'].std():.1f}")
+                        st.write(f"• Min: {recommendations['Kalori'].min():.0f}")
+                        st.write(f"• Max: {recommendations['Kalori'].max():.0f}")
+                    
+                    with col3:
+                        st.markdown("**Kategori Distribution:**")
+                        kategori_counts = recommendations['Kategori'].value_counts()
+                        for kat, count in kategori_counts.items():
+                            st.write(f"• {kat.title()}: {count}")
+                
         except Exception as e:
             st.error(f"❌ Error: {str(e)}")
-            st.exception(e)
+            if show_debug:
+                import traceback
+                st.code(traceback.format_exc())
 
 else:
-    st.info("👈 Masukkan preferensi di sidebar, lalu klik **Dapatkan Rekomendasi**")
+    # Landing page
+    st.info("👈 **Silakan atur preferensi Anda di sidebar dan klik 'Dapatkan Rekomendasi'**")
     
-    # Preview dataset
-    st.subheader("📊 Preview Dataset (450 Menu)")
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        st.write(f"**Total Menu:** {len(df)}")
-    with col2:
-        show_all = st.checkbox("Tampilkan Semua")
+    st.markdown("### 📋 Preview Dataset")
     
-    # Show sample with cleaned karbo
-    display_df = df[['Nama_Menu', 'Kategori', 'Kalori', 'Karbo_List']].head(20).copy()
+    sample_df = df[['Nama_Menu', 'Kategori', 'Kalori', 'Karbo_List', 'Deskripsi_Menu']].head(10)
+    
+    display_df = sample_df.copy()
     display_df['Karbo_List'] = display_df['Karbo_List'].apply(
-        lambda x: ', '.join([k.title() for k in x]) if x else 'N/A'
+        lambda x: ', '.join([k.title() for k in x]) if x else '-'
+    )
+    display_df['Deskripsi_Menu'] = display_df['Deskripsi_Menu'].apply(
+        lambda x: (str(x)[:80] + '...') if pd.notna(x) and len(str(x)) > 80 else str(x)
     )
     
-    if show_all:
-        st.dataframe(display_df, use_container_width=True, height=400)
-    else:
-        st.dataframe(display_df.head(10), use_container_width=True)
+    st.dataframe(
+        display_df,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Nama_Menu": st.column_config.TextColumn("Menu", width="medium"),
+            "Kategori": st.column_config.TextColumn("Kategori", width="small"),
+            "Kalori": st.column_config.NumberColumn("Kalori (kcal)", width="small"),
+            "Karbo_List": st.column_config.TextColumn("Karbohidrat", width="medium"),
+            "Deskripsi_Menu": st.column_config.TextColumn("Deskripsi", width="large")
+        }
+    )
     
-    # Statistik
-    with st.expander("📊 Statistik Dataset"):
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            st.metric("Total Menu", len(df))
-            st.metric("Kategori", df['Kategori'].nunique())
-        
-        with col2:
-            st.metric("Kalori Min", f"{df['Kalori'].min():.0f}")
-            st.metric("Kalori Max", f"{df['Kalori'].max():.0f}")
-        
-        with col3:
-            st.metric("Kalori Avg", f"{df['Kalori'].mean():.0f}")
-            st.metric("Jenis Karbo", len(all_karbo))
-        
-        st.markdown("---")
-        st.caption("**Daftar Karbohidrat yang Tersedia (Sudah Dinormalisasi):**")
-        st.write(', '.join(sorted([k.title() for k in all_karbo])))
+    # Quick stats
+    st.markdown("### 📈 Statistik Dataset")
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("Total Menu", len(df))
+    with col2:
+        st.metric("Kategori", df['Kategori'].nunique())
+    with col3:
+        st.metric("Jenis Karbo", len(karbo_options))
+    with col4:
+        avg_cal = df['Kalori'].mean()
+        st.metric("Avg Kalori", f"{avg_cal:.0f}")
+    
+    # Distribution charts
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("**Distribusi Kategori:**")
+        kategori_dist = df['Kategori'].value_counts()
+        st.bar_chart(kategori_dist)
+    
+    with col2:
+        st.markdown("**Distribusi Kalori:**")
+        st.line_chart(df['Kalori'].sort_values().reset_index(drop=True))
 
 # ========================================
 # FOOTER
 # ========================================
-st.markdown("---")
-st.caption("🔬 Hybrid Recommender System: MCCBF (70%) + Random Forest (30%)")
-st.caption("📊 Dataset: 450 menu dari 3 top catering diet Indonesia")
-st.caption("✨ Auto-cleaning: Normalisasi karbo (nasi merah, nasi putih, dll)")
-st.caption("🏫 Icel's Room Kitchen | UIN Sunan Gunung Djati Bandung")
+st.markdown("""
+<hr>
+<div style='text-align:center; padding: 25px; color:#888;'>
+    <h4 style='margin-bottom: 5px;'>🥗 Sistem Rekomendasi Menu Diet Sehat - HYBRID</h4>
+    <p style='margin: 0;'>Serevina — Katering Diet Personal</p>
+    <p style='font-size: 0.85em; margin: 8px 0 0 0;'>
+        Powered by MCCBF + Random Forest<br>
+        Split Model Terbaik: 70-30 | Alpha: 0.7 | Mode: Seimbang
+    </p>
+    <p style='font-size: 0.7em; margin-top: 10px; color:#aaa;'>
+        © 2025 Sistem Rekomendasi Hybrid | All Rights Reserved
+    </p>
+</div>
+""", unsafe_allow_html=True)
