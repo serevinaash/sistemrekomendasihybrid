@@ -1,0 +1,90 @@
+================================================================================
+RF+TF-IDF vs HYBRID MCCBF+RF - DETAILED COMPARISON REPORT
+================================================================================
+
+================================================================================
+SPLIT: 70-30
+================================================================================
+
+RF+TF-IDF Results:
+  - Test Accuracy:  0.9630
+  - Test F1-Score:  0.9410
+  - Test Precision: 0.9624
+  - Test Recall:    0.9292
+  - Overfitting Gap: 0.0539
+
+Hybrid MCCBF+RF Results:
+  - Test Accuracy:  0.9852
+  - Test F1-Score:  0.9774
+  - Test Precision: 0.9882
+  - Test Recall:    0.9688
+
+Improvements (Hybrid - RF):
+  - Accuracy:  +0.0222 (+2.31%)
+  - F1-Score:  +0.0364 (+3.87%)
+  - Precision: +0.0258
+  - Recall:    +0.0396
+
+VERDICT: ✅ HYBRID WINS - Better in both Accuracy and F1-Score
+
+================================================================================
+SPLIT: 80-20
+================================================================================
+
+RF+TF-IDF Results:
+  - Test Accuracy:  0.9444
+  - Test F1-Score:  0.9098
+  - Test Precision: 0.9447
+  - Test Recall:    0.8966
+  - Overfitting Gap: 0.0857
+
+Hybrid MCCBF+RF Results:
+  - Test Accuracy:  0.9667
+  - Test F1-Score:  0.9569
+  - Test Precision: 0.9766
+  - Test Recall:    0.9420
+
+Improvements (Hybrid - RF):
+  - Accuracy:  +0.0222 (+2.35%)
+  - F1-Score:  +0.0472 (+5.19%)
+  - Precision: +0.0319
+  - Recall:    +0.0455
+
+VERDICT: ✅ HYBRID WINS - Better in both Accuracy and F1-Score
+
+================================================================================
+SPLIT: 90-10
+================================================================================
+
+RF+TF-IDF Results:
+  - Test Accuracy:  0.9778
+  - Test F1-Score:  0.9813
+  - Test Precision: 0.9891
+  - Test Recall:    0.9750
+  - Overfitting Gap: 0.0115
+
+Hybrid MCCBF+RF Results:
+  - Test Accuracy:  1.0000
+  - Test F1-Score:  1.0000
+  - Test Precision: 1.0000
+  - Test Recall:    1.0000
+
+Improvements (Hybrid - RF):
+  - Accuracy:  +0.0222 (+2.27%)
+  - F1-Score:  +0.0187 (+1.91%)
+  - Precision: +0.0109
+  - Recall:    +0.0250
+
+VERDICT: ✅ HYBRID WINS - Better in both Accuracy and F1-Score
+
+================================================================================
+OVERALL SUMMARY
+================================================================================
+
+Average Improvement (Hybrid over RF):
+  - Accuracy:  +0.0222
+  - F1-Score:  +0.0341
+
+FINAL VERDICT: 🏆 Hybrid MCCBF+RF is consistently better
+
+================================================================================

@@ -1,0 +1,8 @@
+,precision,recall,f1-score,support
+ayam,1.0,1.0,1.0,22.0
+ikan,1.0,1.0,1.0,8.0
+lainnya,1.0,1.0,1.0,5.0
+sapi,1.0,1.0,1.0,10.0
+accuracy,1.0,1.0,1.0,1.0
+macro avg,1.0,1.0,1.0,45.0
+weighted avg,1.0,1.0,1.0,45.0
