@@ -33,30 +33,57 @@ SPLIT_RATIOS = [
 # ============================================================
 
 def extract_keywords(text):
-    """Extract semantic keywords"""
+    """
+    Extract semantic keywords dengan LOGIKA PRIORITAS.
+    Aturan: Jika terdeteksi Daging (Ayam/Sapi/Ikan), abaikan label Vegetarian.
+    """
     text = str(text).lower().strip()
     
-    protein_keywords = {
-        'ayam': ['ayam', 'chicken', 'poultry', 'wing', 'breast', 'drumstick'],
-        'sapi': ['sapi', 'beef', 'daging', 'steak', 'bistik', 'rendang', 'rawon', 'bakso', 'iga'],
-        'ikan': ['ikan', 'fish', 'dori', 'salmon', 'tuna', 'kakap', 'gurame', 'nila', 'seafood'],
-        'lainnya': ['vegetarian', 'vegan', 'salad', 'kentang', 'potato', 'sayur', 'vegetable']
+    # 1. Definisi Kamus Kata Kunci
+    # Tambahkan kata kunci spesifik di sini
+    keywords_map = {
+        'ayam': ['ayam', 'chicken', 'poultry', 'bebek', 'dada', 'paha', 'sayap'],
+        'sapi': ['sapi', 'beef', 'daging', 'steak', 'rendang', 'rawon', 'bakso', 'iga', 'buntut', 'meat', 'burger', 'short ribs', 'ribs'],
+        'ikan': ['ikan', 'fish', 'dori', 'salmon', 'tuna', 'kakap', 'lele', 'udang', 'cumi', 'seafood', 'prawn'],
+        'vegetarian': [
+            'vegetarian', 'vegan', 'tahu', 'tofu', 'tempe', 'tempeh', 
+            'jamur', 'mushroom', 'telur', 'egg', 'sayur', 'vegetable', 
+            'salad', 'jagung', 'corn', 'bayam', 'kangkung', 'brokoli',
+            'buncis', 'terong', 'gado-gado', 'pecel', 'karedok'
+        ]
     }
     
-    features = []
-    for category, keywords in protein_keywords.items():
-        if any(kw in text for kw in keywords):
-            features.append(f"protein_{category}")
+    found_categories = set()
     
-    cooking = ['goreng', 'bakar', 'rebus', 'kukus', 'panggang', 'grill', 'fried', 'grilled']
+    # 2. Cek keberadaan keyword di teks
+    for category, keywords in keywords_map.items():
+        if any(k in text for k in keywords):
+            found_categories.add(category)
+            
+    # 3. LOGIKA HIERARKI (BAGIAN PENTING!) ⚠️
+    # Jika Daging ditemukan, maka label Vegetarian harus DIBUANG.
+    # Supaya menu "Sapi Lada Hitam" tidak dianggap "Vegetarian" cuma karena ada kata "Lada Hitam" atau garnish sayur.
+    is_meat_present = 'ayam' in found_categories or 'sapi' in found_categories or 'ikan' in found_categories
+    
+    if is_meat_present and 'vegetarian' in found_categories:
+        found_categories.remove('vegetarian')
+        
+    # 4. Fitur Tambahan (Cara Masak & Rasa)
+    features = [f"protein_{cat}" for cat in found_categories]
+    
+    cooking = ['goreng', 'bakar', 'rebus', 'kukus', 'panggang', 'grill', 'fried', 'grilled', 'roasted']
     if any(method in text for method in cooking):
         features.append("cooked")
     
-    flavors = ['saus', 'sauce', 'bumbu', 'pedas', 'manis', 'asam', 'teriyaki', 'blackpepper']
+    flavors = ['saus', 'sauce', 'bumbu', 'pedas', 'manis', 'asam', 'teriyaki', 'blackpepper', 'lada hitam', 'balado', 'curry', 'kari']
     if any(flavor in text for flavor in flavors):
         features.append("flavored")
     
-    return " ".join(features) if features else text
+    # Gabungkan semua fitur jadi satu string
+    if not features:
+        return text # Kembalikan teks asli jika tidak ada keyword
+        
+    return " ".join(features)
 
 
 def preprocess_menu(menu_name):

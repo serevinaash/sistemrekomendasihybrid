@@ -1,176 +1,135 @@
 import pandas as pd
 import re
-import ast
 
-# ==========================================
-# CLEAN TEXT
-# ==========================================
-
-def clean_text(text):
-    """Lowercase, remove punctuation, normalize whitespace."""
-    if text is None or pd.isna(text):
-        return ""
-    text = str(text).lower()
-    text = re.sub(r"[^a-z0-9\s]", " ", text)
-    text = re.sub(r"\s+", " ", text).strip()
-    return text
+# ================================
+# 1. LOAD DATA
+# ================================
+df = pd.read_csv("dataset/dataset450_indonesia.csv")
 
 
-# ==========================================
-# PARSE KARBOHIDRAT — ANTI ERROR
-# ==========================================
+# ================================
+# 2. FIX KATEGORI (4 kategori)
+# ================================
+def detect_category(nama):
+    nama = nama.lower()
 
-def parse_karbo(value):
-    """
-    Convert berbagai format ke list aman.
-    Bisa handle:
-    - NaN
-    - "Jagung, Nasi Putih"
-    - "['jagung','nasi putih']"
-    - list Python
-    - Series (error fix)
-    """
-    # Jika Series → ambil elemen pertama
-    if isinstance(value, pd.Series):
-        if len(value) > 0:
-            value = value.iloc[0]
-        else:
-            return []
-
-    # Jika NaN → []
-    if value is None or pd.isna(value):
-        return []
-
-    # Jika list Python → bersihkan
-    if isinstance(value, list):
-        return [clean_text(v) for v in value if isinstance(v, str)]
-
-    # Jika string list Python
-    if isinstance(value, str) and value.strip().startswith("[") and value.strip().endswith("]"):
-        try:
-            parsed = ast.literal_eval(value)
-            if isinstance(parsed, list):
-                return [clean_text(v) for v in parsed]
-        except:
-            pass  # fallback ke parse biasa
-
-    # Format biasa "Jagung, Nasi Putih"
-    value = str(value).replace(",", " ")
-    parts = [p.strip().lower() for p in value.split() if p.strip()]
-
-    return parts
-
-
-# ==========================================
-# MAP KATEGORI → MCCBF LAMA
-# ==========================================
-
-def map_kategori(kat):
-    if kat is None or pd.isna(kat):
-        return "lainnya"
-    kat = str(kat).lower().strip()
-
-    if kat == "ayam":
+    # AYAM
+    if any(x in nama for x in [
+        "ayam", "chicken", "wing", "fillet", "paha", "dada", "suwir",
+        "rolade ayam", "chick"
+    ]):
         return "ayam"
-    if kat == "sapi":
+
+    # SAPI
+    if any(x in nama for x in [
+        "sapi", "beef", "daging", "rawon", "rendang", "lada hitam",
+        "bistik", "teriyaki beef"
+    ]):
         return "sapi"
-    if kat in ["ikan", "seafood"]:
+
+    # IKAN
+    if any(x in nama for x in [
+        "ikan", "fish", "dori", "salmon", "tuna", "kakap", "gurame",
+        "nila", "seafood", "udang", "shrimp"
+    ]):
         return "ikan"
-    return "lainnya"
+
+    # VEGETARIAN (termasuk telur)
+    if any(x in nama for x in [
+        "tempe", "tahu", "tofu", "vegetarian", "veggie",
+        "vegetable", "sayur", "salad", "telur", "egg",
+        "omelet", "omelette"
+    ]):
+        return "vegetarian"
+
+    return "ayam"  # fallback default
 
 
-# ==========================================
-# MAIN PREPROCESSOR
-# ==========================================
-
-def preprocess_dataset(
-    input_path="data/dataset450.csv",
-    output_path="dataset450_clean_mccbf.csv"
-):
-    print("🔧 Memuat dataset 450...")
-
-    df = pd.read_csv(input_path, on_bad_lines="skip", engine="python")
-
-    print("🔧 Normalisasi kolom...")
-
-    column_map = {
-        "No": "No",
-        "Nama Menu": "Nama_Menu",
-        "Nama_Menu": "Nama_Menu",
-        "Kategori": "Kategori",
-        "Kategori_Clean": "Kategori",
-        "Kalori": "Kalori",
-        "Kalori (kcal)": "Kalori",
-        "Deskripsi": "Deskripsi_Menu",
-        "Deskripsi Singkat": "Deskripsi_Menu",
-        "Deskripsi_Menu": "Deskripsi_Menu",
-        "Sumber Karbohidrat": "Sumber_Karbohidrat",
-        "Karbo_List": "Karbo_List",
-        "Bahan Utama / Pendamping": "Sumber_Karbohidrat"
-    }
-
-    df = df.rename(columns=column_map)
-
-    # FIX: hapus kolom duplikat
-    df = df.loc[:, ~df.columns.duplicated()]
-
-    print("Kolom setelah rename:", df.columns.tolist())
-
-    print("🔧 Bersihkan nomor baris...")
-
-    df = df[df["No"].astype(str).str.isnumeric()]
-    df["No"] = df["No"].astype(int)
-    df = df.sort_values("No").reset_index(drop=True)
-
-    print("🔧 Map kategori...")
-
-    df["Kategori"] = df["Kategori"].apply(map_kategori)
-
-    print("🔧 Clean nama menu & deskripsi...")
-
-    df["Nama_Menu"] = df["Nama_Menu"].apply(clean_text)
-    df["Deskripsi_Menu"] = df["Deskripsi_Menu"].apply(clean_text)
-
-    print("🔧 Parse karbohidrat...")
-
-    df["Karbo_List"] = df["Sumber_Karbohidrat"].apply(parse_karbo)
-    df["Sumber_Karbohidrat"] = df["Karbo_List"].apply(lambda lst: " ".join(lst))
-
-    print("🔧 Bangun corpus MCCBF...")
-
-    df["corpus"] = (
-        df["Nama_Menu"] + " " +
-        df["Kategori"] + " " +
-        df["Sumber_Karbohidrat"] + " " +
-        df["Deskripsi_Menu"]
-    ).apply(clean_text)
-
-    # Kolom sesuai MCCBF Lama
-    final_cols = [
-        "No",
-        "Nama_Menu",
-        "Kategori",
-        "Kalori",
-        "Sumber_Karbohidrat",
-        "Deskripsi_Menu",
-        "Karbo_List",
-        "corpus"
-    ]
-
-    df = df[final_cols]
-
-    print("💾 Menyimpan hasil:", output_path)
-    df.to_csv(output_path, index=False)
-
-    print("✅ Preprocessing selesai!")
-    print(f"📊 Total baris final: {len(df)}")
-
-    return df
+df["Kategori"] = df["Nama_Menu"].apply(detect_category)
 
 
-# ==========================================
-# MAIN
-# ==========================================
+# ================================
+# 3. STANDARISASI KARBOHIDRAT
+# ================================
+def clean_karbo(x):
+    if pd.isna(x):
+        return []
+    x = x.lower()
+    x = re.sub(r"[,/]", " ", x)
+    tokens = [k.strip() for k in x.split() if k.strip()]
+    return list(set(tokens))
 
-if __name__ == "__main__":
-    preprocess_dataset()
+df["Karbo_List"] = df["Sumber_Karbohidrat"].apply(clean_karbo)
+
+
+# ================================
+# 4. NORMALISASI TEKS
+# ================================
+df["Nama_Lower"] = df["Nama_Menu"].str.lower()
+df["Deskripsi_Lower"] = df["Deskripsi_Menu"].astype(str).str.lower()
+
+
+# ================================
+# 5. EXTRACT SEMANTIC KEYWORDS (MCCBF ONLY)
+# ================================
+def extract_keywords(text):
+    t = text.lower()
+    keywords = []
+
+    # protein
+    if "ayam" in t or "chicken" in t: keywords.append("protein_ayam")
+    if "sapi" in t or "beef" in t or "daging" in t: keywords.append("protein_sapi")
+    if "ikan" in t or "fish" in t or "dori" in t or "salmon" in t: keywords.append("protein_ikan")
+    if any(x in t for x in ["tempe", "tahu", "vegetarian", "salad"]):
+        keywords.append("protein_vegetarian")
+
+    # cooking
+    if any(x in t for x in ["bakar", "panggang", "grill"]):
+        keywords.append("panggang")
+    if any(x in t for x in ["goreng", "fried"]):
+        keywords.append("goreng")
+    if any(x in t for x in ["kukus", "steam"]):
+        keywords.append("kukus")
+    if any(x in t for x in ["rebus", "boil"]):
+        keywords.append("rebus")
+
+    # flavor
+    if "pedas" in t: keywords.append("pedas")
+    if "manis" in t: keywords.append("manis")
+    if "teriyaki" in t: keywords.append("teriyaki")
+    if "blackpepper" in t or "lada hitam" in t: keywords.append("blackpepper")
+
+    return " ".join(keywords)
+
+df["Keyword_Semantik"] = df["Nama_Lower"].apply(extract_keywords)
+
+
+# ================================
+# 6. CORPUS UNTUK MCCBF
+# ================================
+def build_mccbf_corpus(row):
+    return (
+        row["Nama_Lower"] + " " +
+        row["Deskripsi_Lower"] + " " +
+        " ".join(row["Karbo_List"]) + " " +
+        row["Keyword_Semantik"]
+    )
+
+df["enhanced_corpus_mccbf"] = df.apply(build_mccbf_corpus, axis=1)
+
+
+# ================================
+# 7. CORPUS UNTUK RANDOM FOREST (BERSIH)
+# ================================
+def build_rf_corpus(row):
+    return row["Nama_Lower"] + " " + row["Deskripsi_Lower"]
+
+df["corpus_rf"] = df.apply(build_rf_corpus, axis=1)
+
+
+# ================================
+# 8. SAVE
+# ================================
+df.to_csv("dataset450_preprocessed_final.csv", index=False)
+print("✓ PREPROCESSING FINAL COMPLETE")
+print("File saved: dataset450_preprocessed_final.csv")
