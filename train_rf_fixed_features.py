@@ -18,7 +18,7 @@ warnings.filterwarnings('ignore')
 # CONFIGURATION
 # ============================================================
 
-DATASET_PATH = "dataset/dataset450_indonesia.csv"
+DATASET_PATH = "dataset/dataset450_indonesia_fixed.csv"
 OUTPUT_DIR = "rftrain"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
