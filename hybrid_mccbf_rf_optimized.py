@@ -1,10 +1,7 @@
 import os
-import math
-import ast
 import joblib
 import numpy as np
 import pandas as pd
-from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.metrics import (
     f1_score, accuracy_score, precision_score, recall_score,
     classification_report, confusion_matrix
@@ -14,12 +11,18 @@ import seaborn as sns
 import warnings
 warnings.filterwarnings('ignore')
 
+# Import dari utils
+from utils import (
+    MODES, preprocess_menu, clean_karbo_list,
+    compute_mccbf_scores, rf_category_scores
+)
+
 # ============================================================
 # CONFIGURATION
 # ============================================================
 
 DATASET_PATH = "dataset/dataset450_indonesia.csv"
-RF_MODEL_DIR = "rftrain"  # From Script 1
+RF_MODEL_DIR = "rftrain"
 OUTPUT_DIR = "hybrid"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
@@ -29,129 +32,9 @@ SPLIT_RATIOS = [
     (0.90, 0.10, "90-10")
 ]
 
-# MCCBF Configuration
-ALPHA = 0.7  # 70% MCCBF, 30% RF
+# HYBRID CONFIGURATION
+ALPHA = 0.7
 MODE = "seimbang"
-MODES = {
-    'seimbang': {
-        'w_similarity': 0.35,
-        'w_kalori': 0.10,
-        'w_karbo': 0.25,
-        'w_keyword': 0.30
-    }
-}
-
-# ============================================================
-# PREPROCESSING FUNCTIONS
-# ============================================================
-
-def extract_keywords(text):
-    """
-    Extract semantic keywords dengan LOGIKA PRIORITAS (SAMA DENGAN SCRIPT TRAINING).
-    """
-    text = str(text).lower().strip()
-    
-    # 1. Definisi Kamus Kata Kunci (VERSI UPDATE)
-    keywords_map = {
-        'ayam': ['ayam', 'chicken', 'poultry', 'bebek', 'dada', 'paha', 'sayap'],
-        'sapi': ['sapi', 'beef', 'daging', 'steak', 'rendang', 'rawon', 'bakso', 'iga', 'buntut', 'meat', 'burger', 'short ribs', 'ribs'],
-        'ikan': ['ikan', 'fish', 'dori', 'salmon', 'tuna', 'kakap', 'lele', 'udang', 'cumi', 'seafood', 'prawn'],
-        'vegetarian': [
-            'vegetarian', 'vegan', 'tahu', 'tofu', 'tempe', 'tempeh', 
-            'jamur', 'mushroom', 'telur', 'egg', 'sayur', 'vegetable', 
-            'salad', 'jagung', 'corn', 'bayam', 'kangkung', 'brokoli',
-            'buncis', 'terong', 'gado-gado', 'pecel', 'karedok'
-        ]
-    }
-    
-    found_categories = set()
-    
-    # 2. Cek keberadaan keyword
-    for category, keywords in keywords_map.items():
-        if any(k in text for k in keywords):
-            found_categories.add(category)
-            
-    # 3. LOGIKA PRIORITAS (Meat overrides Veggie)
-    is_meat_present = 'ayam' in found_categories or 'sapi' in found_categories or 'ikan' in found_categories
-    
-    if is_meat_present and 'vegetarian' in found_categories:
-        found_categories.remove('vegetarian')
-        
-    # 4. Fitur Tambahan
-    features = [f"protein_{cat}" for cat in found_categories]
-    
-    cooking = ['goreng', 'bakar', 'rebus', 'kukus', 'panggang', 'grill', 'fried', 'grilled', 'roasted']
-    if any(method in text for method in cooking):
-        features.append("cooked")
-    
-    flavors = ['saus', 'sauce', 'bumbu', 'pedas', 'manis', 'asam', 'teriyaki', 'blackpepper', 'lada hitam', 'balado', 'curry', 'kari']
-    if any(flavor in text for flavor in flavors):
-        features.append("flavored")
-    
-    if not features:
-        return text 
-        
-    return " ".join(features)
-
-
-def preprocess_menu(menu_name):
-    """Preprocess menu untuk vectorization"""
-    corpus = str(menu_name).lower()
-    semantic = extract_keywords(menu_name)
-    return corpus + " " + semantic
-
-
-# ============================================================
-# MCCBF SCORING COMPONENTS
-# ============================================================
-
-def gaussian_calorie_score(menu_cal, target_cal, sigma=10):
-    if target_cal is None or target_cal <= 0:
-        return 1.0
-    try:
-        diff = abs(float(target_cal) - float(menu_cal))
-        score = math.exp(-(diff ** 2) / (2 * (sigma ** 2)))
-        return max(0.0, min(1.0, score))
-    except:
-        return 0.5
-
-
-
-
-def karbo_score(menu_karbo_list, preferred_karbo):
-    """Jaccard similarity untuk karbo preference"""
-    if not preferred_karbo:
-        return 1.0
-    if not menu_karbo_list:
-        return 0.5
-    
-    menu_set = {k.lower().strip() for k in menu_karbo_list}
-    pref_set = {k.lower().strip() for k in preferred_karbo}
-    
-    inter = len(menu_set & pref_set)
-    union = len(menu_set | pref_set)
-    
-    return inter / union if union > 0 else 0.5
-
-
-def keyword_boost_score(menu_desc, user_query):
-    """Keyword boost score"""
-    if not user_query or pd.isna(user_query):
-        return 0.0
-    
-    important_keywords = {
-        'pedas', 'manis', 'gurih', 'asam', 'asin',
-        'panggang', 'bakar', 'goreng', 'kukus', 'rebus', 'tumis',
-        'crispy', 'grill', 'renyah', 'sehat', 'diet'
-    }
-    
-    menu_desc = str(menu_desc).lower() if not pd.isna(menu_desc) else ""
-    user_kw = set(str(user_query).lower().split())
-    menu_kw = set(menu_desc.split())
-    
-    matched = user_kw & menu_kw & important_keywords
-    return min(0.35, len(matched) * 0.10)
-
 
 # ============================================================
 # HYBRID EVALUATOR CLASS
@@ -194,17 +77,7 @@ class HybridEvaluator:
         print(f"{'='*70}")
         
         # Parse Karbo_List
-        def parse_list(x):
-            if isinstance(x, list):
-                return x
-            if pd.isna(x):
-                return []
-            try:
-                return ast.literal_eval(x)
-            except:
-                return []
-        
-        self.df["Karbo_List"] = self.df["Karbo_List"].apply(parse_list)
+        self.df["Karbo_List"] = self.df["Karbo_List"].apply(clean_karbo_list)
         
         # Enhanced corpus
         self.df["enhanced_corpus"] = self.df["Nama_Menu"].apply(preprocess_menu)
@@ -216,41 +89,6 @@ class HybridEvaluator:
         print(f"Train: {len(self.train_df)} ({self.train_size*100:.0f}%)")
         print(f"Test:  {len(self.test_df)} ({self.test_size*100:.0f}%)")
         
-    def compute_mccbf_scores(self, X_all, user_query, target_calorie, preferred_karbo):
-        """Compute MCCBF scores untuk semua menu"""
-        weights = MODES[MODE]
-        
-        # Similarity
-        enhanced_query = preprocess_menu(user_query)
-        X_user = self.vectorizer.transform([enhanced_query])
-        sim = cosine_similarity(X_user, X_all)[0]
-        sim_norm = sim / sim.max() if sim.max() > 0 else sim
-        
-        # Calorie
-        cal_scores = self.df["Kalori"].apply(
-            lambda c: gaussian_calorie_score(c, target_calorie)
-        ).values
-        
-        # Karbo
-        karbo_scores = self.df["Karbo_List"].apply(
-            lambda kl: karbo_score(kl, preferred_karbo)
-        ).values
-        
-        # Keyword
-        keyword_boosts = self.df["Deskripsi_Menu"].apply(
-            lambda desc: keyword_boost_score(desc, user_query)
-        ).values
-        
-        # Weighted sum
-        mccbf = (
-            weights['w_similarity'] * sim_norm +
-            weights['w_kalori'] * cal_scores +
-            weights['w_karbo'] * karbo_scores +
-            weights['w_keyword'] * keyword_boosts
-        )
-        
-        return mccbf
-    
     def evaluate_hybrid(self):
         """Evaluate Hybrid MCCBF+RF"""
         print(f"\n⏳ Computing hybrid predictions...")
@@ -265,11 +103,10 @@ class HybridEvaluator:
             test_queries.append({
                 'query': row['Nama_Menu'].lower(),
                 'true_label': row['Kategori'],
-                'target_calorie': None,     # calorie does NOT matter now
-                'preferred_karbo': None     # evaluation must NOT include user preferences
+                'target_calorie': None,
+                'preferred_karbo': None
             })
 
-                    
         # Predict dengan hybrid
         y_hybrid_pred = []
         hybrid_scores_list = []
@@ -281,11 +118,12 @@ class HybridEvaluator:
                 print(f"   Processing {i+1}/{len(test_queries)}...")
             
             # MCCBF Score
-            mccbf_scores = self.compute_mccbf_scores(
-                X_all, 
-                test_case['query'],
-                test_case['target_calorie'],
-                test_case['preferred_karbo']
+            mccbf_scores, _ = compute_mccbf_scores(
+                self.df, X_all, self.vectorizer,
+                user_query=test_case['query'],
+                target_calorie=test_case['target_calorie'],
+                preferred_karbo=test_case['preferred_karbo'],
+                mode=MODE
             )
             
             # RF Score

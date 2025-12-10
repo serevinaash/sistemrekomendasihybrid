@@ -14,6 +14,9 @@ import seaborn as sns
 import warnings
 warnings.filterwarnings('ignore')
 
+# Import dari utils
+from utils import preprocess_menu, MODES
+
 # ============================================================
 # CONFIGURATION
 # ============================================================
@@ -27,71 +30,6 @@ SPLIT_RATIOS = [
     (0.80, 0.20, "80-20"),
     (0.90, 0.10, "90-10")
 ]
-
-# ============================================================
-# PREPROCESSING FUNCTIONS
-# ============================================================
-
-def extract_keywords(text):
-    """
-    Extract semantic keywords dengan LOGIKA PRIORITAS.
-    Aturan: Jika terdeteksi Daging (Ayam/Sapi/Ikan), abaikan label Vegetarian.
-    """
-    text = str(text).lower().strip()
-    
-    # 1. Definisi Kamus Kata Kunci
-    # Tambahkan kata kunci spesifik di sini
-    keywords_map = {
-        'ayam': ['ayam', 'chicken', 'poultry', 'bebek', 'dada', 'paha', 'sayap'],
-        'sapi': ['sapi', 'beef', 'daging', 'steak', 'rendang', 'rawon', 'bakso', 'iga', 'buntut', 'meat', 'burger', 'short ribs', 'ribs'],
-        'ikan': ['ikan', 'fish', 'dori', 'salmon', 'tuna', 'kakap', 'lele', 'udang', 'cumi', 'seafood', 'prawn'],
-        'vegetarian': [
-            'vegetarian', 'vegan', 'tahu', 'tofu', 'tempe', 'tempeh', 
-            'jamur', 'mushroom', 'telur', 'egg', 'sayur', 'vegetable', 
-            'salad', 'jagung', 'corn', 'bayam', 'kangkung', 'brokoli',
-            'buncis', 'terong', 'gado-gado', 'pecel', 'karedok'
-        ]
-    }
-    
-    found_categories = set()
-    
-    # 2. Cek keberadaan keyword di teks
-    for category, keywords in keywords_map.items():
-        if any(k in text for k in keywords):
-            found_categories.add(category)
-            
-    # 3. LOGIKA HIERARKI (BAGIAN PENTING!) ⚠️
-    # Jika Daging ditemukan, maka label Vegetarian harus DIBUANG.
-    # Supaya menu "Sapi Lada Hitam" tidak dianggap "Vegetarian" cuma karena ada kata "Lada Hitam" atau garnish sayur.
-    is_meat_present = 'ayam' in found_categories or 'sapi' in found_categories or 'ikan' in found_categories
-    
-    if is_meat_present and 'vegetarian' in found_categories:
-        found_categories.remove('vegetarian')
-        
-    # 4. Fitur Tambahan (Cara Masak & Rasa)
-    features = [f"protein_{cat}" for cat in found_categories]
-    
-    cooking = ['goreng', 'bakar', 'rebus', 'kukus', 'panggang', 'grill', 'fried', 'grilled', 'roasted']
-    if any(method in text for method in cooking):
-        features.append("cooked")
-    
-    flavors = ['saus', 'sauce', 'bumbu', 'pedas', 'manis', 'asam', 'teriyaki', 'blackpepper', 'lada hitam', 'balado', 'curry', 'kari']
-    if any(flavor in text for flavor in flavors):
-        features.append("flavored")
-    
-    # Gabungkan semua fitur jadi satu string
-    if not features:
-        return text # Kembalikan teks asli jika tidak ada keyword
-        
-    return " ".join(features)
-
-
-def preprocess_menu(menu_name):
-    """Preprocess menu untuk vectorization"""
-    corpus = str(menu_name).lower()
-    semantic = extract_keywords(menu_name)
-    return corpus + " " + semantic
-
 
 # ============================================================
 # RF TRAINER CLASS
@@ -111,7 +49,7 @@ class RFTrainer:
         print(f"📊 TRAINING RF+TF-IDF - SPLIT: {self.split_name}")
         print(f"{'='*70}")
         
-        # Enhanced corpus
+        # Enhanced corpus (dari utils)
         self.df["enhanced_corpus"] = self.df["Nama_Menu"].apply(preprocess_menu)
         
         # Split data
@@ -196,7 +134,7 @@ class RFTrainer:
             'cm': confusion_matrix(self.y_test, y_test_pred)
         }
         
-        # Store for later use
+        # Store untuk later use
         self.X_train_vec = X_train_vec
         self.X_test_vec = X_test_vec
         
