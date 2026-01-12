@@ -4,7 +4,7 @@ import re
 # ================================
 # 1. LOAD DATA
 # ================================
-df = pd.read_csv("dataset/dataset450_indonesia.csv")
+df = pd.read_csv("dataset/dataset450.csv")
 
 
 # ================================
@@ -130,6 +130,6 @@ df["corpus_rf"] = df.apply(build_rf_corpus, axis=1)
 # ================================
 # 8. SAVE
 # ================================
-df.to_csv("dataset450_preprocessed_final.csv", index=False)
+df.to_csv("dataset450_indonesia.csv", index=False)
 print("✓ PREPROCESSING FINAL COMPLETE")
-print("File saved: dataset450_preprocessed_final.csv")
+print("File saved: dataset450_indonesia.csv")

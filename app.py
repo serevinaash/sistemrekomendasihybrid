@@ -239,7 +239,7 @@ generate_btn = st.button("🚀 Cari Menu", type="primary", use_container_width=T
 # RESULTS
 # ======================================== 
 if generate_btn:
-    AUTO_ALPHA = {"seimbang": 0.70, "fokus_deskripsi": 0.65, "fokus_kategori": 0.60}
+    AUTO_ALPHA = {"seimbang": 0.70, "fokus_deskripsi": 0.85, "fokus_kategori": 0.50}
     alpha = AUTO_ALPHA.get(mode, ALPHA_BEST)
     
     with st.spinner("Mencari menu terbaik..."):
