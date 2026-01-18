@@ -1,0 +1,4 @@
+Query_Menu,True_Label,Pred_Label,Hybrid_Score,MCCBF_Score,RF_Score
+Rawon Surabaya,sapi,ayam,0.7023055381510697,0.6305986494138833,0.8696216118711709
+Tumis Kacang Panjang,vegetarian,ikan,0.5618453353003654,0.38,0.9861511176678848
+Capcay Kuah,vegetarian,ayam,0.5531339970764156,0.38,0.9571133235880521

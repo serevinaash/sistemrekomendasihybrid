@@ -133,10 +133,11 @@ class HybridEvaluator:
             # Hybrid score
             hybrid = ALPHA * mccbf_scores + (1 - ALPHA) * rf_scores
             
-            # Get best prediction
-            best_idx = hybrid.argmax()
-            pred_label = self.df.iloc[best_idx]['Kategori']
-            y_hybrid_pred.append(pred_label)
+
+            # Get best prediction AKURASI HYBRID
+            best_idx = hybrid.argmax() #Ambil index menu yang punya hybrid score paling tinggi
+            pred_label = self.df.iloc[best_idx]['Kategori'] #Ambil kategori menu dari menu terbaik tadi
+            y_hybrid_pred.append(pred_label) #Simpan hasil prediksi kategori ke list prediksi
             hybrid_scores_list.append(hybrid[best_idx])
             mccbf_scores_list.append(mccbf_scores[best_idx])
             rf_scores_list.append(rf_scores[best_idx])

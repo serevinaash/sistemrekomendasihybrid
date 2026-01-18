@@ -29,10 +29,10 @@ st.markdown("""
     .recommendation-card { 
         background: white; 
         border-left: 4px solid #4CAF50; 
-        padding: 1rem; 
-        margin: 0.5rem 0;
+        padding: 1.5rem; 
+        margin: 1rem 0;
         border-radius: 6px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     }
     .rank-badge { 
         background: #4CAF50; 
@@ -40,6 +40,31 @@ st.markdown("""
         padding: 0.5rem 0.75rem;
         border-radius: 4px;
         font-weight: bold;
+        font-size: 18px;
+    }
+    .menu-title {
+        font-size: 20px;
+        font-weight: bold;
+        color: #1f77b4;
+        margin-bottom: 0.5rem;
+    }
+    .menu-description {
+        color: #555;
+        line-height: 1.6;
+        margin: 0.8rem 0;
+        padding: 0.8rem;
+        background: #f9f9f9;
+        border-radius: 4px;
+    }
+    .info-row {
+        display: flex;
+        gap: 2rem;
+        margin: 0.5rem 0;
+        flex-wrap: wrap;
+    }
+    .info-item {
+        flex: 1;
+        min-width: 200px;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -136,9 +161,34 @@ st.markdown("""
 # ======================================== 
 # MAIN INPUT SECTION
 # ======================================== 
-col1, col2, col3 = st.columns([2, 2, 1], gap="large")
+col1, col2, col3 = st.columns([1, 2, 2], gap="large")
 
 with col1:
+    st.markdown("### 🍖 Kategori")
+    kategori_options = sorted(df['Kategori'].dropna().unique().tolist())
+    kategori_pref = st.multiselect(
+        "Pilih kategori",
+        options=kategori_options,
+        default=[kategori_options[0]] if kategori_options else [],
+        label_visibility="collapsed",
+        max_selections=3
+    )
+
+with col2:
+    st.markdown("### 🔥 Kalori Maksimal")
+    kalori_min, kalori_max = int(df['Kalori'].min()), int(df['Kalori'].max())
+    kalori_mean = int(df['Kalori'].mean())
+    kalori_target = st.slider(
+        "kcal",
+        min_value=kalori_min,
+        max_value=kalori_max,
+        value=kalori_mean,
+        step=5,
+        label_visibility="collapsed"
+    )
+    st.caption(f"Range: {kalori_min} - {kalori_max} kcal")
+
+with col3:
     st.markdown("### 📝 Deskripsi")
     preset_queries = {
         "🟢 Rendah Lemak": "rendah lemak sehat",
@@ -164,31 +214,6 @@ with col1:
         "Atau ketik sendiri:", 
         value=st.session_state.query,
         placeholder="misal: ayam bakar pedas"
-    )
-
-with col2:
-    st.markdown("### 🔥 Kalori Maksimal")
-    kalori_min, kalori_max = int(df['Kalori'].min()), int(df['Kalori'].max())
-    kalori_mean = int(df['Kalori'].mean())
-    kalori_target = st.slider(
-        "kcal",
-        min_value=kalori_min,
-        max_value=kalori_max,
-        value=kalori_mean,
-        step=5,
-        label_visibility="collapsed"
-    )
-    st.caption(f"Range: {kalori_min} - {kalori_max} kcal")
-
-with col3:
-    st.markdown("### 🍖 Kategori")
-    kategori_options = sorted(df['Kategori'].dropna().unique().tolist())
-    kategori_pref = st.multiselect(
-        "Pilih kategori",
-        options=kategori_options,
-        default=[kategori_options[0]] if kategori_options else [],
-        label_visibility="collapsed",
-        max_selections=3
     )
 
 # ======================================== 
@@ -271,41 +296,52 @@ if generate_btn:
         st.markdown("---")
         st.markdown(f"### 🏆 Hasil Pencarian ({len(recommendations)} menu)")
         
-        # Results
+        # Results - Improved Layout
         for idx, row in recommendations.iterrows():
-            with st.container():
-                col_rank, col_content = st.columns([0.5, 9.5])
-                
-                with col_rank:
-                    st.markdown(f"<div class='rank-badge'>#{idx + 1}</div>", unsafe_allow_html=True)
-                
-                with col_content:
-                    st.markdown(f"**{row['Nama_Menu'].title()}**")
+            st.markdown('<div class="recommendation-card">', unsafe_allow_html=True)
+            
+            # Rank & Title
+            col_rank, col_title = st.columns([0.8, 9.2])
+            with col_rank:
+                st.markdown(f"<div class='rank-badge'>#{idx + 1}</div>", unsafe_allow_html=True)
+            with col_title:
+                st.markdown(f"<div class='menu-title'>{row['Nama_Menu'].title()}</div>", unsafe_allow_html=True)
+            
+            # Info Row: Kategori, Kalori, Karbo
+            info_col1, info_col2, info_col3 = st.columns([2, 2, 3])
+            with info_col1:
+                st.markdown(f"**🍖 Kategori:** {row['Kategori'].title()}")
+            with info_col2:
+                st.markdown(f"**🔥 Kalori:** {row['Kalori']} kcal")
+            with info_col3:
+                karbo_display = format_karbo_display(row['Karbo_List'], pilihan_karbo)
+                st.markdown(f"**🥔 Karbohidrat:** {karbo_display}")
+            
+            # Full Description
+            if row['Deskripsi_Menu'] and str(row['Deskripsi_Menu']) != 'nan':
+                st.markdown(f"<div class='menu-description'>{row['Deskripsi_Menu'].capitalize()}</div>", unsafe_allow_html=True)
+            
+            # Debug Info
+            if show_debug:
+                with st.expander("📊 Score Details"):
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("MCCBF Score", f"{row['mccbf_score']:.4f}")
+                    with col2:
+                        st.metric("RF Score", f"{row['rf_score']:.4f}")
+                    with col3:
+                        st.metric("Hybrid Score", f"{row['hybrid_score']:.4f}")
                     
-                    info_cols = st.columns([2, 2])
-                    with info_cols[0]:
-                        st.caption(f"🍖 {row['Kategori'].title()}")
-                    with info_cols[1]:
-                        st.caption(f"🔥 {row['Kalori']} kcal")
-                    
-                    if row['Deskripsi_Menu'] and str(row['Deskripsi_Menu']) != 'nan':
-                        st.caption(f"{row['Deskripsi_Menu'].capitalize()}")
-                    
-                    karbo_display = format_karbo_display(row['Karbo_List'], pilihan_karbo)
-                    st.caption(f"🥔 {karbo_display}")
-                    
-                    if show_debug:
-                        with st.expander("Score Details", expanded=False):
-                            col1, col2 = st.columns(2)
-                            with col1:
-                                st.write(f"MCCBF: {row['mccbf_score']:.4f}")
-                                st.write(f"  • Similarity: {row['mccbf_similarity']:.4f}")
-                                st.write(f"  • Calorie: {row['mccbf_calorie']:.4f}")
-                            with col2:
-                                st.write(f"RF Score: {row['rf_score']:.4f}")
-                                st.write(f"Hybrid: {row['hybrid_score']:.4f}")
-                
-                st.markdown("")
+                    st.caption("Breakdown:")
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.write(f"• Similarity: {row['mccbf_similarity']:.4f}")
+                    with col2:
+                        st.write(f"• Calorie Score: {row['mccbf_calorie']:.4f}")
+                    with col3:
+                        st.write(f"• Karbo Score: {row['mccbf_karbo']:.4f}")
+            
+            st.markdown('</div>', unsafe_allow_html=True)
         
         # Download
         st.markdown("---")

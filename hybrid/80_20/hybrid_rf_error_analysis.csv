@@ -1,0 +1,3 @@
+Query_Menu,True_Label,Pred_Label,Hybrid_Score,MCCBF_Score,RF_Score
+Tumis Kacang Panjang,vegetarian,ikan,0.5618203106549561,0.38,0.986067702183187
+Capcay Kuah,vegetarian,ayam,0.551172745478278,0.38,0.9505758182609267
