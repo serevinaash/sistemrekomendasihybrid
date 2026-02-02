@@ -27,7 +27,7 @@ OUTPUT_DIR = "hybrid"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 SPLIT_RATIOS = [
-    (0.70, 0.30, "70-30"),
+    (0.70, 0.30, "70-30"), 
     (0.80, 0.20, "80-20"),
     (0.90, 0.10, "90-10")
 ]
@@ -50,25 +50,48 @@ class HybridEvaluator:
         
     def load_rf_model(self):
         """Load RF model dari training sebelumnya"""
+
+        # ============================================================
+        # [IMPLEMENTASI MODEL RANDOM FOREST HASIL SPLIT DATA]
+        # split_name (misal "80-20") menentukan model RF mana yang digunakan
+        # Contoh:
+        # split_name = "80-20"  -->  model di folder rftrain/80_20/
+        # ============================================================
         split_folder = os.path.join(RF_MODEL_DIR, self.split_name.replace('-', '_'))
         
+        # Model Random Forest hasil training (misal split 80:20)
         model_path = os.path.join(split_folder, "rf_model.pkl")
+        
+        # TF-IDF vectorizer yang digunakan saat training RF
         vectorizer_path = os.path.join(split_folder, "tfidf_vectorizer.pkl")
+        
+        # Indeks data latih dan data uji dari split RF (misal 80% train, 20% test)
         indices_path = os.path.join(split_folder, "split_indices.csv")
         
         if not os.path.exists(model_path):
-            raise FileNotFoundError(f"RF model not found: {model_path}\nPlease run script 1 first!")
+            raise FileNotFoundError(
+                f"RF model not found: {model_path}\n"
+                "Please run RF training script first!"
+            )
         
         print(f"\n📂 Loading RF model from: {split_folder}")
+        
+        # ============================================================
+        # >>> INI IMPLEMENTASI MODEL RF 80:20 (BUKAN TRAINING ULANG) <<<
+        # Model RF terbaik dimuat dan digunakan langsung oleh sistem hybrid
+        # ============================================================
         self.rf_model = joblib.load(model_path)
         self.vectorizer = joblib.load(vectorizer_path)
         
-        # Load indices
+        # ============================================================
+        # Load pembagian data yang sama dengan RF (agar evaluasi adil)
+        # ============================================================
         indices_df = pd.read_csv(indices_path)
         self.train_indices = indices_df['train_indices'].dropna().astype(int).tolist()
         self.test_indices = indices_df['test_indices'].dropna().astype(int).tolist()
         
         print(f"✅ Loaded RF model and vectorizer")
+
         
     def prepare_data(self):
         """Prepare data sesuai split yang sama dengan RF"""
